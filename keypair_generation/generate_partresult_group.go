@@ -20,13 +20,15 @@ import (
 	"encoding/base64"
 	"runtime"
 	"sync"
+	"flag"
 )
 
 
-const KEYSIZE = 1024
+var KEYSIZE = 1024
+var DEBUG = true
 const PL = 1360
 const Mu = 3080
-const GROUPElENUM = 1023 //400 is suitalbe for group size
+var GROUPElENUM = 1000 //400 is suitalbe for group size
 var writelock *sync.RWMutex
 
 type Privkey struct{
@@ -110,7 +112,7 @@ func addJob(jobs chan<- int, num int) {
 	for i:=0;i<num;i++{
 		jobs <- i
 	}
-	fmt.Println("num to calculate is ", num)
+	//fmt.Println("num to calculate is ", num)
 	close(jobs)
 
 }
@@ -125,6 +127,7 @@ func doJob(
 	for job := range jobs{
 		tmp := big.NewInt(3080)
 		inner := time.Now()
+
 		for j:=0;j<len(groups_v);j++{
 			if j==job {
 				continue
@@ -133,6 +136,7 @@ func doJob(
 				tmp = tmp.Exp(tmp,groups_v[j],N)
 			}
 		}
+
 		msg := fmt.Sprintf("worker %d", ii)
 		if colorflag == true {
 			msg = Red(msg)
@@ -141,18 +145,16 @@ func doJob(
 			msg = Blue(msg)
 			colorflag = true
 		}
-		timeTrack(inner, msg)
+		if DEBUG == true {
+			timeTrack(inner, msg)
+		}
 		part_calculated[job] = new(big.Int).Add(tmp,zero)
 		val := InterRsult{tmp.Bytes(), job}
 		marshed,_ := json.Marshal(val)
 		//fmt.Println(marshed)
 		writelock.Lock()
 		w.WriteString(base64.StdEncoding.EncodeToString(marshed)+"\n")
-		//marshed = append(marshed, '\n')
-		//w.Write(marshed)
-	//	if err = w.Flush(); err != nil {
-	//	panic(err)
-	//}
+
 		writelock.Unlock()
 		bar.Increment()
 	}
@@ -169,7 +171,7 @@ func Generate_W_V(Ws []*big.Int, v, N,G, FiN *big.Int, keys[]*Privkey ,num int){
 	working := worker
 	jobs := make(chan int, worker)
 	dones := make(chan struct{}, worker)
-	fo, err := os.OpenFile("groupresult.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+	fo, err := os.OpenFile("groupresult.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
 	0600)
    	check(err)
 
@@ -305,41 +307,61 @@ func check(e error) {
 
 func main() {
 
+	VoterNumber:= flag.Int("n", 900000, "voter numbers")
+	keysize := flag.Int("k", 1024, "keysize numbers")
+	//debug := flag.Bool("v", true, "verbose")
+	groupnum := flag.Int("s" , 1024, "group element numbers")
+
+
+	flag.Parse()
+
+	NUM := *VoterNumber
+	KEYSIZE = *keysize
+	GROUPElENUM = *groupnum
+
+
+	fmt.Println("----------------------")
+	fmt.Println("voter number: ",NUM)
+	fmt.Println("key size: ",KEYSIZE)
+	fmt.Println("group number:", GROUPElENUM)
+	fmt.Println("----------------------")
+
+	//DEBUG = *debug
 	var N,g,FiN *big.Int
 	writelock = new(sync.RWMutex)
+	need_generate := false
+	if need_generate {
+		N, g, FiN, _ = GenerateN(rand.Reader, KEYSIZE)
+	}else {
+		part_calculated := make(map[int]*big.Int)
+		fiNg, err := os.Open("11.txt")
+		check(err)
+		r1 := bufio.NewReader(fiNg)
+		for i:=0;i<3;i++ {
 
+			line, err := r1.ReadBytes('\n')
+			if err != nil && err != io.EOF {
+				panic(err)
+			}
+			decodeval,err := base64.StdEncoding.DecodeString(string(line))
+			var val InterRsult
+			json.Unmarshal(decodeval, &val)
+			part_calculated[val.Groupid] = new(big.Int).SetBytes(val.Result)
 
-	//N,g,FiN,_ = GenerateN(rand.Reader, KEYSIZE)
-
-	part_calculated := make(map[int]*big.Int)
-	fiNg, err := os.Open("11.txt")
-	check(err)
-	r1 := bufio.NewReader(fiNg)
-	for i:=0;i<3;i++ {
-
-		line, err := r1.ReadBytes('\n')
-		if err != nil && err != io.EOF {
-			panic(err)
 		}
-		decodeval,err := base64.StdEncoding.DecodeString(string(line))
-		var val InterRsult
-		json.Unmarshal(decodeval, &val)
-		part_calculated[val.Groupid] = new(big.Int).SetBytes(val.Result)
-
+		N = new(big.Int).Add(part_calculated[-1],big.NewInt(0))
+		println(N.BitLen())
+		FiN = new(big.Int).Add(part_calculated[-2],big.NewInt(0))
+		println(FiN.BitLen())
+		g = new(big.Int).Add(part_calculated[-3],big.NewInt(0))
+		println(g.BitLen())
 	}
-	N = new(big.Int).Add(part_calculated[-1],big.NewInt(0))
-	println(N.BitLen())
-	FiN = new(big.Int).Add(part_calculated[-2],big.NewInt(0))
-	println(FiN.BitLen())
-	g = new(big.Int).Add(part_calculated[-3],big.NewInt(0))
-	println(g.BitLen())
 
-
-		//fmt.Println(N.String())
+	//fmt.Println(N.String())
 	//fmt.Println(FiN.String())
 	//fmt.Println(g)
 	//NUM := 475081
-	NUM := 1200
+
 	//NUM := 1000
 	keys := make([]*Privkey,NUM,NUM)
 	now := time.Now()
@@ -362,6 +384,7 @@ func main() {
 			new(big.Int).SetBytes(m.Pub),new(big.Int).SetBytes(m.P),
 			new(big.Int).SetBytes(m.Q)}
 	}
+	fmt.Println("key size in file", keys[3].pub.BitLen())
 	if err := fi.Close(); err != nil {
 		panic(err)
 	}
@@ -371,5 +394,6 @@ func main() {
 	//fmt.Println("-----------")
 	//fmt.Println(keys[2].pub.Bytes())
 	Generate_W_V(Ws, V,N,g,FiN, keys, NUM)
+	timeTrack(now, "all spet on data: ")
 	return
 }

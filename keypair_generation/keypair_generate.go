@@ -22,11 +22,10 @@ import (
 	"strconv"
 	_ "net/http/pprof"
 	"net/http"
-	"io/ioutil"
 )
-const KEY_SIZE = 1024
+var  KEY_SIZE = 1024
 const DEFAULT_POOL_SIZE = 100000000
-const VALUE_SIZE = 88
+//const VALUE_SIZE = 88
 var colorflag = false
 var load_file = false
 var indexI int= 0
@@ -107,7 +106,7 @@ func GenerateKeypreprime(random io.Reader, bits int, Primepool *[]*big.Int) (Pri
 		}
 		pp := new(big.Int).Mul(two, p)
 		pubkey = new(big.Int).Add(one,new(big.Int).Mul(q, pp))
-		if pubkey.ProbablyPrime(10)== true{
+		if pubkey.ProbablyPrime(5)== true{
 			break
 		}
 	}
@@ -190,9 +189,9 @@ func doJob(
 			break
 		}
 		marshed,_ := json.Marshal(val)
-		marshed = append(marshed, '\n')
+
 		writelockoutputkey.Lock()
-		if _, err := w.Write(marshed); err != nil {
+		if _, err := w.WriteString(base64.StdEncoding.EncodeToString(marshed)+"\n"); err != nil {
 			writelockoutputkey.Unlock()
 			panic(err)
 			}
@@ -246,23 +245,23 @@ func Loadfiletomemory(primefilepath string, PrimePool *[]*big.Int)(errret error)
 	//	println("we discard the file cache")
 	//}()
 
-	content := make([]byte, 0, 1024*1024*1024*8)
 	//io.ReadFull(fread, content)
-
-	content, err = ioutil.ReadAll(fread)
+	newreader := bufio.NewReader(fread)
 	//	if err != nil {
 	//		log.Fatal(err)
 	//	}
-	k := 0
 	//num_content := len(content)
+	//fixme we set only half of the pool
 	for j:=0;j<line_num/5;j++{
 		//fmt.Printf("%s\n", content[k:k+88])
 		//if k > num_content{
 		//	break
 		//}
-		val,_ = base64.StdEncoding.DecodeString(string(content[k:k+VALUE_SIZE]))
+		each,_,_ := newreader.ReadLine()
+		val,_ = base64.StdEncoding.DecodeString(string(each))
 		output = new(big.Int).SetBytes(val)
-		k = k+VALUE_SIZE+1
+		//fmt.Println(output.BitLen())
+		//k = k+VALUE_SIZE+1
 		*PrimePool = append(*PrimePool, output)
 		bar.Increment()
 		//println(output.String())
@@ -299,7 +298,6 @@ func Loadfiletomemory(primefilepath string, PrimePool *[]*big.Int)(errret error)
 	//
 	//}
 
-	content = nil
 	fread.Close()
 	bar.Finish()
 	return errret
@@ -313,17 +311,26 @@ func main(){
 	}()
 	KeyPairNumPtr:= flag.Int("n", 100, "number of keypairs")
 	PrimePathPtr := flag.String("Pfile", "", "location of prime file")
-	OutFile := flag.String("O", "", "location destination file")
-
+	OutFile := flag.String("O", "outputkey.txt", "location destination file")
+	keysize := flag.Int("key", 1024, "set the size of the key")
   	flag.Parse()
 	PrimePool := make([]*big.Int, 0, DEFAULT_POOL_SIZE)
 	writelock = new(sync.RWMutex)
 	writelockoutputkey = new(sync.RWMutex)
+	KEY_SIZE = *keysize
 	//arg := os.Args[1]
  	//i64,err := strconv.ParseInt(arg, 10, 32)
 	done := false
 	NUM := *KeyPairNumPtr
 	primefilepath := *PrimePathPtr
+	fmt.Println("*************************")
+	fmt.Println("KEY SIZE: ",KEY_SIZE)
+	fmt.Println("out file: ",*OutFile)
+	fmt.Println("fime file: ",primefilepath)
+	fmt.Println("keypair numbers: ",NUM)
+
+	fmt.Println("*************************")
+
 	if primefilepath == ""{
 		load_file = false
 	}else{
@@ -339,7 +346,7 @@ func main(){
 	//	time.Sleep(1*time.Minute)
 	//}
 	bar := pb.StartNew(NUM).Prefix("uploadint the votes:")
-	fo, err := os.OpenFile(*OutFile, os.O_CREATE|os.O_WRONLY, 0600)
+	fo, err := os.OpenFile(*OutFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
    	check(err)
      //close fo on exit and check for its returned error
     defer func() {

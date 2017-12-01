@@ -24,13 +24,14 @@ import (
 	"encoding/base64"
 
 	//"golang.org/x/tools/cmd/fiximports/testdata/src/titanic.biz/bar"
+	"flag"
 )
 
 
 const PK = 256
 const PL = 1360
 const Mu = 3080
-const GROUPElENUM = 1023 //400 is suitalbe for group size
+var GROUPElENUM = 400 //400 is suitalbe for group size
 //const This_SIG = 5888
 
 type Privkey struct{
@@ -130,22 +131,34 @@ func addJob(jobs chan<- int, num int) {
 
 
 func doJob(
-		jobs <-chan int, dones chan<- struct{},groups_v []*big.Int,
+		jobs <-chan int, dones chan<- struct{},
 		 Ws []*big.Int, part_calculated map[int]*big.Int,
 		N, FiN *big.Int, ii int, keys[]*Privkey,bar *pb.ProgressBar){
 	for job := range jobs{
-	//inner := time.Now()
 
-		Ws[job] =  new(big.Int).Quo(groups_v[job/GROUPElENUM], keys[job].pub)
+		timenow := time.Now()
 
-		//if job==1024{
-		//	fmt.Println("**************************")
-		//	fmt.Println(Ws[job])
-		//				fmt.Println("**************************")
-		//
-		//}
-		Ws[job] = new(big.Int).Mod(Ws[job], FiN)
-		Ws[job] = new(big.Int).Exp(part_calculated[job/GROUPElENUM], Ws[job], N)
+		index := job/GROUPElENUM
+		localv := big.NewInt(1)
+		pos := 0
+		for i:=0;i<GROUPElENUM;i++{
+			pos = index*GROUPElENUM+i
+			if pos == job{
+				continue
+			}
+			if pos == len(keys)|| pos >len(keys) {
+				break
+			}
+			val := keys[pos].pub
+			localv.Mul(localv, val)
+			localv.Mod(localv, FiN)
+
+		}
+
+
+		//Ws[job] = new(big.Int).Quo(groups_v[job/GROUPElENUM], keys[job].pub)
+		//Ws[job] = new(big.Int).Mod(Ws[job], FiN)
+		Ws[job] = new(big.Int).Exp(part_calculated[job/GROUPElENUM], localv, N)
 
 		//fmt.Println(Ws[job])
 		//msg := fmt.Sprintf("worker %d", ii)
@@ -159,6 +172,7 @@ func doJob(
 		//timeTrack(inner, msg)
 		bar.Increment()
 		//log.Printf("%s", msg)
+		timeTrack(timenow,"spend on generating ws: ")
 
 		}
 	dones <- struct{}{}
@@ -198,6 +212,7 @@ func run_core_task(userid int, keys[]*Privkey,
 	for i := 0; i < 6; i++ {
 		//fmt.Println(Tgroup[i],"\n",Tp[i])
 		if Tgroup[i].Cmp(Tp[i]) == 0 {
+			//fmt.Println(Tp[i].Bytes())
 			continue
 		} else {
 			fmt.Println("error: ", i)
@@ -241,43 +256,38 @@ func Generate_W_V_from_file(Ws []*big.Int, v, N, FiN *big.Int, keys[]*Privkey ,
 		part_calculated map[int]*big.Int, num int){
 	//defer timeTrack(time.Now(), "calculate V,W")
 	//one := big.NewInt(1)
-	zero := big.NewInt(0)
+	//zero := big.NewInt(0)
 	done := false
 	u := big.NewInt(3080)
-	localv := big.NewInt(1)
+	//localv := big.NewInt(1)
 	v.Add(u, big.NewInt(0))
-	ally := big.NewInt(1)
+	//ally := big.NewInt(1)
 	group_num := math.Ceil(float64(num)/float64(GROUPElENUM))
 	fmt.Println("group num:",group_num)
 	//var j=0
-	groups_v := make([]*big.Int, 0)
+	//groups_v := make([]*big.Int, 0)
 
-	if num <GROUPElENUM || num == GROUPElENUM {
-		for i:=0;i<num;i++{
-				ally.Mul(ally, keys[i].pub)
-		}
-		y := new(big.Int).Quo(ally, keys[0].pub)
-		Ws[0] = new(big.Int).Exp(u,y,N)
-		v.Exp(Ws[0], keys[0].pub, N)
-
-		return
-
-	}else {
-		for i := 0; i < num; i++ {
-			localv.Mul(localv, keys[i].pub)
-			//fixme
-			//localv = new(big.Int).Mod(localv, FiN)
-			//fmt.Print(i%each_num)
-
-			if i%GROUPElENUM == GROUPElENUM-1 {
-				groups_v = append(groups_v, new(big.Int).Add(localv, zero))
-				//localv=nil
-				localv = big.NewInt(1)
-				//j++
-			}
-		}
-		groups_v = append(groups_v,new(big.Int).Add(localv, zero))
-	}
+	//if num <GROUPElENUM || num == GROUPElENUM {
+	//	for i:=0;i<num;i++{
+	//			ally.Mul(ally, keys[i].pub)
+	//	}
+	//	y := new(big.Int).Quo(ally, keys[0].pub)
+	//	Ws[0] = new(big.Int).Exp(u,y,N)
+	//	v.Exp(Ws[0], keys[0].pub, N)
+	//	return
+	//
+	//}else {
+	//	for i := 0; i < num; i++ {
+	//		//thistime := time.Now()
+	//		localv.Mul(localv, keys[i].pub)
+	//		if i%GROUPElENUM == GROUPElENUM-1 {
+	//			groups_v = append(groups_v, new(big.Int).Add(localv, zero))
+	//			localv = big.NewInt(1)
+	//			//timeTrack(thistime,"this time.")
+	//		}
+	//	}
+	//	groups_v = append(groups_v,new(big.Int).Add(localv, zero))
+	//}
 
 	barw := pb.StartNew(num).Prefix("generate the W")
 	calculte3 := time.Now()
@@ -289,7 +299,7 @@ func Generate_W_V_from_file(Ws []*big.Int, v, N, FiN *big.Int, keys[]*Privkey ,
 	go addJob(jobs, num)
 
 	for i:=0; i<worker; i++ {
-			go doJob(jobs, dones,groups_v,Ws,part_calculated,N,FiN, i, keys,barw)
+			go doJob(jobs, dones,Ws,part_calculated,N,FiN, i, keys,barw)
 		}
 	for{
 		<-dones
@@ -306,13 +316,13 @@ func Generate_W_V_from_file(Ws []*big.Int, v, N, FiN *big.Int, keys[]*Privkey ,
 
 
 
-	rtest := big.NewInt(3080)
-	for i:=0;i<len(groups_v);i++{
-		if i ==0{
-			break
-		}
-		rtest.Exp(rtest, groups_v[i], N)
-	}
+	//rtest := big.NewInt(3080)
+	//for i:=0;i<len(groups_v);i++{
+	//	if i ==0{
+	//		break
+	//	}
+	//	rtest.Exp(rtest, groups_v[i], N)
+	//}
 
 
 	//for i:= 497;i<502;i++{
@@ -705,9 +715,31 @@ func main() {
 	//fmt.Println(g)
 	//NUM := 475081
 	//NUM := 1390000
-	NUM := 1200
+	//NUM := 12000
 	//NUM := 1000000
 	//NUM := 10001
+
+
+
+	VoterNumber:= flag.Int("n", 900000, "voter numbers")
+	//debug := flag.Bool("v", true, "verbose")
+	groupnum := flag.Int("s" , 1024, "group element numbers")
+
+
+	flag.Parse()
+
+
+	NUM := *VoterNumber
+	GROUPElENUM = *groupnum
+
+
+	fmt.Println("----------------------")
+	fmt.Println("voter number: ",NUM)
+	fmt.Println("group number:", GROUPElENUM)
+	fmt.Println("----------------------")
+
+	time.Sleep(3*time.Second)
+
 	keys := make([]*Privkey,NUM,NUM)
 	now := time.Now()
 	part_calculated := make(map[int]*big.Int)
@@ -777,7 +809,7 @@ func main() {
 	Ws := make([]*big.Int,NUM,NUM)
 	//Aa := make([]*big.Int,3,3)
 	V := big.NewInt(0)
-
+	fmt.Println(keys[2].pub.BitLen())
 	Generate_W_V_from_file(Ws, V,N, FiN, keys, part_calculated, NUM)
 
 	//we write the W to file

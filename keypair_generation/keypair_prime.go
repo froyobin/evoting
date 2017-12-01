@@ -12,15 +12,15 @@ import (
 	"encoding/json"
 	"gopkg.in/cheggaaa/pb.v1"
 
-	"strconv"
 	"runtime"
 	"time"
 	"log"
 	"encoding/base64"
 
 	"sync"
+	"flag"
 )
-const KEY_SIZE = 1024
+var  KEY_SIZE = 2048
 var colorflag = false
 
 type Privkey struct{
@@ -125,16 +125,16 @@ func doJob(
 
 
 func main(){
-	arg := os.Args[1]
+	KeyPairNumPtr:= flag.Int("n", 100, "number of keypairs")
+	keysize := flag.Int("s", 1024, "size of the key")
+	flag.Parse()
 	done := false
 	writelock = new(sync.RWMutex)
- 	i64,err := strconv.ParseInt(arg, 10, 32)
-	NUM := int(i64)
-	if err != nil{
-		fmt.Println("error in arguments")
-	}
+	NUM := *KeyPairNumPtr
+	KEY_SIZE = *keysize
+	fmt.Println("choose key lenth:",KEY_SIZE)
 	bar := pb.StartNew(NUM).Prefix("uploadint the votes:")
-	fo, err := os.OpenFile("outputprime.txt", os.O_CREATE|os.O_WRONLY, 0600)
+	fo, err := os.OpenFile("outputprime.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
    	check(err)
      //close fo on exit and check for its returned error
     defer func() {
